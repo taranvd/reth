@@ -372,6 +372,12 @@ pub enum BaseFeeParamsKind {
     /// Variable [`BaseFeeParams`]; used for chains that have dynamic EIP-1559 parameters like
     /// Optimism
     Variable(ForkBaseFeeParams),
+    /// Overrides the computed next-block base fee with a constant value, disabling EIP-1559 fee
+    /// dynamics entirely.
+    ///
+    /// Only intended for dev and testing chains (e.g. `--dev.constant-base-fee`), where already
+    /// signed transactions with fixed fee caps are replayed and must stay includable.
+    TestingOverride(u64),
 }
 
 impl Default for BaseFeeParamsKind {
@@ -538,6 +544,9 @@ impl<H: BlockHeader> ChainSpec<H> {
     pub fn base_fee_params_at_timestamp(&self, timestamp: u64) -> BaseFeeParams {
         match self.base_fee_params {
             BaseFeeParamsKind::Constant(bf_params) => bf_params,
+            // The base fee is pinned, so the adjustment params are never applied; return the
+            // defaults for consumers that only need the elasticity (e.g. gas target reporting).
+            BaseFeeParamsKind::TestingOverride(_) => BaseFeeParams::ethereum(),
             BaseFeeParamsKind::Variable(ForkBaseFeeParams(ref bf_params)) => {
                 // Walk through the base fee params configuration in reverse order, and return the
                 // first one that corresponds to a hardfork that is active at the

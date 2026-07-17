@@ -60,11 +60,22 @@ pub struct DevArgs {
 
     /// Keep the EIP-1559 base fee constant for locally mined blocks.
     ///
-    /// Disables base fee adjustment so every mined block inherits the parent's base fee.
+    /// Without a value, disables base fee adjustment so every mined block inherits the
+    /// parent's base fee. With a value (`--dev.constant-base-fee=<WEI>`), pins the base fee
+    /// of every mined block to that value instead.
+    ///
     /// Useful when replaying already-signed transactions whose fee caps cannot be adjusted,
     /// where sustained full blocks would otherwise drive the base fee above those caps.
-    #[arg(long = "dev.constant-base-fee", help_heading = "Dev testnet", requires = "dev")]
-    pub constant_base_fee: bool,
+    #[arg(
+        long = "dev.constant-base-fee",
+        help_heading = "Dev testnet",
+        value_name = "WEI",
+        num_args = 0..=1,
+        require_equals = true,
+        requires = "dev",
+        verbatim_doc_comment
+    )]
+    pub constant_base_fee: Option<Option<u64>>,
 
     /// Derive dev accounts from a fixed mnemonic instead of random ones.
     #[arg(
@@ -85,7 +96,7 @@ impl Default for DevArgs {
             block_max_transactions: None,
             block_time: None,
             payload_wait_time: None,
-            constant_base_fee: false,
+            constant_base_fee: None,
             dev_mnemonic: DEFAULT_MNEMONIC.to_string(),
         }
     }
@@ -113,7 +124,7 @@ mod tests {
                 block_max_transactions: None,
                 block_time: None,
                 payload_wait_time: None,
-                constant_base_fee: false,
+                constant_base_fee: None,
                 dev_mnemonic: DEFAULT_MNEMONIC.to_string(),
             }
         );
@@ -126,7 +137,7 @@ mod tests {
                 block_max_transactions: None,
                 block_time: None,
                 payload_wait_time: None,
-                constant_base_fee: false,
+                constant_base_fee: None,
                 dev_mnemonic: DEFAULT_MNEMONIC.to_string(),
             }
         );
@@ -139,7 +150,7 @@ mod tests {
                 block_max_transactions: None,
                 block_time: None,
                 payload_wait_time: None,
-                constant_base_fee: false,
+                constant_base_fee: None,
                 dev_mnemonic: DEFAULT_MNEMONIC.to_string(),
             }
         );
@@ -158,7 +169,7 @@ mod tests {
                 block_max_transactions: Some(2),
                 block_time: None,
                 payload_wait_time: None,
-                constant_base_fee: false,
+                constant_base_fee: None,
                 dev_mnemonic: DEFAULT_MNEMONIC.to_string(),
             }
         );
@@ -172,7 +183,7 @@ mod tests {
                 block_max_transactions: None,
                 block_time: Some(std::time::Duration::from_secs(1)),
                 payload_wait_time: None,
-                constant_base_fee: false,
+                constant_base_fee: None,
                 dev_mnemonic: DEFAULT_MNEMONIC.to_string(),
             }
         );
@@ -180,19 +191,16 @@ mod tests {
 
     #[test]
     fn test_parse_dev_args_constant_base_fee() {
+        // bare flag freezes the base fee at the parent value
         let args =
             CommandParser::<DevArgs>::parse_from(["reth", "--dev", "--dev.constant-base-fee"]).args;
-        assert_eq!(
-            args,
-            DevArgs {
-                dev: true,
-                block_max_transactions: None,
-                block_time: None,
-                payload_wait_time: None,
-                constant_base_fee: true,
-                dev_mnemonic: DEFAULT_MNEMONIC.to_string(),
-            }
-        );
+        assert_eq!(args.constant_base_fee, Some(None));
+
+        // explicit value pins the base fee
+        let args =
+            CommandParser::<DevArgs>::parse_from(["reth", "--dev", "--dev.constant-base-fee=1"])
+                .args;
+        assert_eq!(args.constant_base_fee, Some(Some(1)));
 
         // requires --dev
         let args = CommandParser::<DevArgs>::try_parse_from(["reth", "--dev.constant-base-fee"]);

@@ -88,7 +88,7 @@ impl<H: BlockHeader> EthChainSpec for ChainSpec<H> {
     fn next_block_base_fee(&self, parent: &Self::Header, target_timestamp: u64) -> Option<u64> {
         // Only applies to post-London parents, mirroring the default implementation.
         let parent_base_fee = parent.base_fee_per_gas()?;
-        if let BaseFeeParamsKind::TestingOverride(base_fee) = self.base_fee_params {
+        if let BaseFeeParamsKind::TestingOverride { base_fee, .. } = self.base_fee_params {
             return Some(base_fee);
         }
         Some(calc_next_block_base_fee(

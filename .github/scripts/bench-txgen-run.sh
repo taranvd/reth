@@ -270,9 +270,11 @@ if [ "$EXECUTION_MODE" = "rpc" ]; then
   # Replayed transactions are already signed, so their fee caps cannot be adjusted.
   # Without this, sustained full blocks compound the base fee by 12.5% per block until
   # it exceeds those caps and inclusion stalls on fee dynamics instead of node throughput.
-  # Pinning to 1 wei (rather than freezing at the tip value) keeps every replayed
-  # transaction includable regardless of its fee cap.
-  if "$BINARY" node --help 2>/dev/null | grep -qF -- '--dev.constant-base-fee'; then
+  # Pinning to 1 wei (rather than freezing at the tip value) keeps replayed transactions
+  # includable (the txpool still enforces its 7 wei minimum protocol fee cap at the door,
+  # which no mainnet transaction is below). The probe matches the `[=` suffix because older
+  # binaries support the flag only as a bare boolean and reject an attached value.
+  if "$BINARY" node --help 2>/dev/null | grep -qF -- '--dev.constant-base-fee[='; then
     RETH_ARGS+=(--dev.constant-base-fee=1)
   else
     echo "::warning::${LABEL} binary does not support --dev.constant-base-fee; base fee will drift during RPC replay"

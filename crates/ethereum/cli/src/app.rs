@@ -71,7 +71,7 @@ where
         C: ChainSpecParser<ChainSpec = ChainSpec>,
     {
         if let Commands::Node(command) = &mut self.cli.command {
-            apply_dev_chain_spec_overrides(&command.dev, &mut command.chain);
+            apply_dev_chain_spec_overrides(&mut command.dev, &mut command.chain);
         }
 
         let jit_args = match &self.cli.command {
@@ -241,20 +241,30 @@ pub trait ExtendedCommand {
 /// value via [`BaseFeeParamsKind::TestingOverride`]. The payload builder, consensus
 /// validation and the transaction pool all derive the next base fee from the chain spec, so
 /// locally mined blocks stay self-consistent either way.
-fn apply_dev_chain_spec_overrides(dev: &DevArgs, chain: &mut Arc<ChainSpec>) {
+///
+/// The flag is taken out of `dev` once applied: entry points that never call this (e.g. the
+/// `run_with_components` family) leave it set, which the dev-mode launcher detects to warn
+/// that the flag was ignored.
+fn apply_dev_chain_spec_overrides(dev: &mut DevArgs, chain: &mut Arc<ChainSpec>) {
     if !dev.dev {
         return;
     }
-    match dev.constant_base_fee {
+    // The chain's own elasticity is preserved in both arms: it still feeds consumers that
+    // read the adjustment params directly, such as gas limit validation at the London
+    // transition block.
+    let elasticity = chain.base_fee_params_at_timestamp(u64::MAX).elasticity_multiplier;
+    match dev.constant_base_fee.take() {
         // freeze at the parent (i.e. chain tip) value
         Some(None) => {
-            let elasticity = chain.base_fee_params_at_timestamp(u64::MAX).elasticity_multiplier;
             Arc::make_mut(chain).base_fee_params =
                 BaseFeeParamsKind::Constant(BaseFeeParams::new(0, elasticity));
         }
         // pin to an explicit value
         Some(Some(base_fee)) => {
-            Arc::make_mut(chain).base_fee_params = BaseFeeParamsKind::TestingOverride(base_fee);
+            Arc::make_mut(chain).base_fee_params = BaseFeeParamsKind::TestingOverride {
+                base_fee,
+                params: BaseFeeParams::new(0, elasticity),
+            };
         }
         None => {}
     }
@@ -312,9 +322,11 @@ mod tests {
         let next = command.chain.next_block_base_fee(&parent, parent.timestamp + 1).unwrap();
         assert!(next < parent_base_fee);
 
-        apply_dev_chain_spec_overrides(&command.dev, &mut command.chain);
+        apply_dev_chain_spec_overrides(&mut command.dev, &mut command.chain);
         let next = command.chain.next_block_base_fee(&parent, parent.timestamp + 1).unwrap();
         assert_eq!(next, parent_base_fee);
+        // consumed once applied so unapplied uses can be detected
+        assert!(command.dev.constant_base_fee.is_none());
     }
 
     #[test]
@@ -333,9 +345,16 @@ mod tests {
         let parent = command.chain.genesis_header().clone();
         assert_ne!(parent.base_fee_per_gas, Some(7));
 
-        apply_dev_chain_spec_overrides(&command.dev, &mut command.chain);
+        let elasticity_before =
+            command.chain.base_fee_params_at_timestamp(u64::MAX).elasticity_multiplier;
+        apply_dev_chain_spec_overrides(&mut command.dev, &mut command.chain);
         let next = command.chain.next_block_base_fee(&parent, parent.timestamp + 1).unwrap();
         assert_eq!(next, 7);
+        // the chain's elasticity survives the override, and the reported params freeze the
+        // base fee for consumers that bypass `ChainSpec::next_block_base_fee`
+        let params = command.chain.base_fee_params_at_timestamp(u64::MAX);
+        assert_eq!(params.elasticity_multiplier, elasticity_before);
+        assert_eq!(params.max_change_denominator, 0);
     }
 
     #[test]
@@ -345,7 +364,7 @@ mod tests {
         let Commands::Node(mut command) = cli.command else { panic!("expected node command") };
 
         let params_before = command.chain.base_fee_params_at_timestamp(u64::MAX);
-        apply_dev_chain_spec_overrides(&command.dev, &mut command.chain);
+        apply_dev_chain_spec_overrides(&mut command.dev, &mut command.chain);
         assert_eq!(command.chain.base_fee_params_at_timestamp(u64::MAX), params_before);
     }
 

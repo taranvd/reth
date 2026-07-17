@@ -267,6 +267,14 @@ if [ "$EXECUTION_MODE" = "rpc" ]; then
     exit 1
   fi
   RETH_ARGS+=(--chain mainnet --dev --dev.block-time "${BENCH_BLOCK_TIME:-1s}")
+  # Replayed transactions are already signed, so their fee caps cannot be adjusted.
+  # Without this, sustained full blocks compound the base fee by 12.5% per block until
+  # it exceeds those caps and inclusion stalls on fee dynamics instead of node throughput.
+  if "$BINARY" node --help 2>/dev/null | grep -qF -- '--dev.constant-base-fee'; then
+    RETH_ARGS+=(--dev.constant-base-fee)
+  else
+    echo "::warning::${LABEL} binary does not support --dev.constant-base-fee; base fee will drift during RPC replay"
+  fi
 fi
 
 if [ -n "${BENCH_REORG:-}" ]; then
